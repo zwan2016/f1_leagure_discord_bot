@@ -81,7 +81,8 @@ ALPHA_X    = 0.08
 ALPHA_Y    = 0.18
 ALPHA_DIST = 0.15
 
-OUTRO_S = 1.5
+OUTRO_S    = 1.5
+RACE_SPEED = 0.85  # race playback speed multiplier (< 1 = slower)
 LINEAR_TRANSITION_S = 3   # seconds to animate non-linear → linear scale after outro
 GRID_BLEND_DURATION = 60.0   # seconds over which start-grid layout blends into race scale
 
@@ -706,17 +707,38 @@ def _render_frame(
 
 # ── ffmpeg ───────────────────────────────────────────────────────────────────
 
-def _open_ffmpeg(out_path: str) -> subprocess.Popen:
+def _open_ffmpeg(out_path: str, input_fps: float = FPS) -> subprocess.Popen:
+    """Open an ffmpeg process that reads raw RGB frames from stdin.
+
+    input_fps controls how ffmpeg interprets the incoming frame rate.
+    Output is always FPS (30). Setting input_fps < FPS slows playback
+    without frame-duplication judder (ffmpeg upsamples evenly to FPS).
+    """
     return subprocess.Popen(
         ["ffmpeg", "-y",
          "-f", "rawvideo", "-vcodec", "rawvideo",
          "-s", f"{W}x{H}", "-pix_fmt", "rgb24",
-         "-r", str(FPS), "-i", "pipe:0",
+         "-r", str(input_fps), "-i", "pipe:0",
          "-vcodec", "libx264", "-pix_fmt", "yuv420p",
+         "-r", str(FPS),
          "-crf", "22", "-preset", "fast", "-movflags", "+faststart",
          out_path],
         stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
+
+
+def _concat_mp4(part1: str, part2: str, out_path: str) -> None:
+    """Concatenate two mp4 files using ffmpeg concat demuxer."""
+    import tempfile
+    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
+        f.write(f"file '{part1}'\nfile '{part2}'\n")
+        list_path = f.name
+    subprocess.run(
+        ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+         "-i", list_path, "-c", "copy", out_path],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True,
+    )
+    os.unlink(list_path)
 
 
 # ── public API ────────────────────────────────────────────────────────────────
@@ -836,7 +858,13 @@ def build_mp4(
     sc_band_start:     Optional[float] = None          # leader smooth_dist when SC started
     prev_sc_status:    int             = 0
 
-    proc = _open_ffmpeg(out_path)
+    # Race and outro+linear are encoded separately then concatenated.
+    # The race segment uses input_fps = FPS*RACE_SPEED so ffmpeg upsamples
+    # evenly to FPS — no frame-duplication judder.
+    race_tmp  = out_path + ".race.mp4"
+    outro_tmp = out_path + ".outro.mp4"
+
+    proc = _open_ffmpeg(race_tmp, input_fps=FPS * RACE_SPEED)
     frame_count = 0
 
     try:
@@ -998,10 +1026,19 @@ def build_mp4(
             proc.stdin.write(img.tobytes())
             frame_count += 1
 
+        # Close race segment ffmpeg process
+        proc.stdin.close()
+        proc.wait()
+        if proc.returncode != 0:
+            raise RuntimeError(f"ffmpeg (race segment) exited with code {proc.returncode}.")
+
         # Close any SC period still open at race end
         if sc_band_start is not None:
             sc_bands.append((sc_band_start, leader_smooth))
             sc_band_start = None
+
+        # Open a new ffmpeg process for outro + linear transition (normal speed)
+        proc = _open_ffmpeg(outro_tmp, input_fps=FPS)
 
         # ── Outro: uniform speed toward finish_distance ───────────────────────
         # DNF ghost cars are excluded from movement and speed calculation.
@@ -1142,12 +1179,19 @@ def build_mp4(
     finally:
         proc.stdin.close()
         proc.wait()
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"ffmpeg (outro segment) exited with code {proc.returncode}. "
+                "Is ffmpeg installed and on PATH?"
+            )
 
-    if proc.returncode != 0:
-        raise RuntimeError(
-            f"ffmpeg exited with code {proc.returncode}. "
-            "Is ffmpeg installed and on PATH?"
-        )
+    # Concatenate race + outro into final output, clean up temp files
+    _concat_mp4(race_tmp, outro_tmp, out_path)
+    for tmp in (race_tmp, outro_tmp):
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
 
     size_kb = os.path.getsize(out_path) // 1024
     print(f"[visualizer] mp4 saved: {out_path} ({frame_count} frames, {size_kb} KB)")
