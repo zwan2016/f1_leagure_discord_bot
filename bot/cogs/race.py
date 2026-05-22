@@ -96,7 +96,7 @@ def _build_results_embed(session: dict, results: list, participants: list) -> di
         grid   = row["grid_position"] if row["grid_position"] else 0
         # Left-justify grid number in 2 chars so P7 and P12 stay aligned
         grid_tag = f"`P{grid:<2}`" if grid > 0 else "`P?`"
-        finish   = medals.get(pos, f"**P{pos}**")
+        finish   = medals.get(pos, f"P{pos}")
         if status in ("DNF", "Retired", "DSQ", "Not Classified"):
             lines.append(f"{grid_tag} -> {finish} {name} — _{status}_")
         else:
