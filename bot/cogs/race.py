@@ -94,15 +94,13 @@ def _build_results_embed(session: dict, results: list, participants: list) -> di
         best   = _format_ms(row["best_lap_ms"])
         pits   = row["num_pit_stops"]
         grid   = row["grid_position"] if row["grid_position"] else 0
-        icon   = medals.get(pos, f"**P{pos}**")
-        # Grid → finish indicator, monospace for alignment (e.g. `P12→P 7`)
-        grid_str = f"P{grid:2d}" if grid > 0 else "P ?"
-        pos_str  = f"P{pos:2d}"
-        pos_tag  = f"`{grid_str}→{pos_str}`"
+        # Left-justify grid number in 2 chars so P7 and P12 stay aligned
+        grid_tag = f"`P{grid:<2}`" if grid > 0 else "`P?`"
+        finish   = medals.get(pos, f"**P{pos}**")
         if status in ("DNF", "Retired", "DSQ", "Not Classified"):
-            lines.append(f"{icon} {pos_tag} {name} — _{status}_")
+            lines.append(f"{grid_tag} -> {finish} {name} — _{status}_")
         else:
-            lines.append(f"{icon} {pos_tag} {name} — Best: `{best}` | Pits: {pits}")
+            lines.append(f"{grid_tag} -> {finish} {name} — Best: `{best}` | Pits: {pits}")
     embed.description = "\n".join(lines) if lines else "No classification data."
     return embed
 
