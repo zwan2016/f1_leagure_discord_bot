@@ -217,7 +217,7 @@ class Recorder:
              int(ld.penalties),
              self._current_tyre.get(i))
             for i, ld in enumerate(list(pkt.lap_data))
-            if int(ld.result_status) in (1, 2, 3)  # 1=Inactive covers SC/formation laps at race start
+            if int(ld.result_status) in (0, 1, 2, 3)  # include 0/1 to capture pre-Active race laps
         ]
         self.conn.executemany(
             """INSERT INTO lap_snapshots
