@@ -1,4 +1,4 @@
-f1-packets>=2025.1.1,<2026
+f1-packets>=2026.1.1,<2027
 discord.py>=2.3.0
 Pillow>=9.0.0
 aiohttp>=3.8.0
